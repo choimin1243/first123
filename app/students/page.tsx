@@ -26,6 +26,7 @@ export default function StudentsPage() {
     const [students, setStudents] = useState<Student[]>([]);
     const [loading, setLoading] = useState(false);
     const [classData, setClassData] = useState<ClassData | null>(null);
+    const [isPasting, setIsPasting] = useState(false);
 
     useEffect(() => {
         if (!classId) return;
@@ -77,6 +78,8 @@ export default function StudentsPage() {
 
     const handlePaste = (e: React.ClipboardEvent) => {
         e.preventDefault();
+        setIsPasting(true);
+
         const pastedData = e.clipboardData.getData('text');
         const rows = pastedData.split('\n').filter(row => row.trim());
 
@@ -91,6 +94,21 @@ export default function StudentsPage() {
         });
 
         setStudents(newStudents);
+
+        setTimeout(() => setIsPasting(false), 1000);
+    };
+
+    const downloadTemplate = () => {
+        const template = '이름\t성별\t문제아\t그룹\n홍길동\t남\tfalse\tA조\n김영희\t여\tfalse\tB조\n이철수\t남\ttrue\tA조';
+        const blob = new Blob([template], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${classData?.grade}학년_${currentSection}반_명렬표_템플릿.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const addRow = () => {
@@ -128,13 +146,19 @@ export default function StudentsPage() {
                 }),
             });
 
-            if (!response.ok) throw new Error('Failed to save students');
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error('Server error:', errorData);
+                throw new Error(errorData.error || 'Failed to save students');
+            }
 
+            const result = await response.json();
+            console.log('Save successful:', result);
             alert('학생 정보가 저장되었습니다!');
             loadStudents();
         } catch (error) {
             console.error('Error:', error);
-            alert('저장 중 오류가 발생했습니다.');
+            alert(`저장 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
         } finally {
             setLoading(false);
         }
@@ -181,11 +205,48 @@ export default function StudentsPage() {
                 <div className="container">
                     <div className="card">
                         <h1>{classData?.grade}학년 {currentSection}반 학생 정보</h1>
-                        <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-                            엑셀에서 복사 후 표에 붙여넣기(Ctrl+V) 하거나, 직접 입력할 수 있습니다.
-                            <br />
-                            <small>엑셀 형식: 이름 | 성별(남/여 또는 M/F) | 문제아(true/false) | 그룹</small>
-                        </p>
+
+                        <div style={{
+                            background: 'var(--card-bg)',
+                            border: '2px dashed var(--primary-color)',
+                            borderRadius: '12px',
+                            padding: '1.5rem',
+                            marginBottom: '2rem'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                                <span style={{ fontSize: '1.5rem' }}>📋</span>
+                                <div style={{ flex: 1 }}>
+                                    <h3 style={{ margin: 0, color: 'var(--primary-color)' }}>엑셀 붙여넣기 가능</h3>
+                                    <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                        엑셀에서 복사 후 아래 표에 <strong>Ctrl+V</strong>로 붙여넣기 하거나, 직접 입력할 수 있습니다.
+                                    </p>
+                                </div>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={downloadTemplate}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                >
+                                    📥 템플릿 다운로드
+                                </button>
+                            </div>
+                            <small style={{ color: 'var(--text-muted)' }}>
+                                <strong>형식:</strong> 이름 | 성별(남/여 또는 M/F) | 문제아(true/false/문제) | 그룹
+                            </small>
+                        </div>
+
+                        {isPasting && (
+                            <div style={{
+                                background: 'var(--success-color)',
+                                color: 'white',
+                                padding: '1rem',
+                                borderRadius: '8px',
+                                marginBottom: '1rem',
+                                textAlign: 'center',
+                                animation: 'fadeIn 0.3s'
+                            }}>
+                                ✅ 데이터가 붙여넣기 되었습니다!
+                            </div>
+                        )}
 
                         <div className="table-container" onPaste={handlePaste}>
                             <table>
