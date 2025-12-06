@@ -80,6 +80,13 @@ try {
   } catch (e) {
     // 컬럼이 이미 존재하면 에러 무시
   }
+
+  // 기존 테이블에 child_class_id 컬럼 추가 (반편성 시 새로운 클래스 ID)
+  try {
+    db.exec(`ALTER TABLE classes ADD COLUMN child_class_id INTEGER;`);
+  } catch (e) {
+    // 컬럼이 이미 존재하면 에러 무시
+  }
 } catch (error) {
   console.error('Database initialization failed:', error);
 }

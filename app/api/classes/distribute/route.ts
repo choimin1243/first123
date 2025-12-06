@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
 
         insertAllStudents();
 
-        // 반별 통계 생성
+        // 반별 통계 및 학생 명단 생성
         const stats = sections.map((students, index) => ({
             section: index + 1,
             total: students.length,
@@ -195,10 +195,24 @@ export async function POST(request: NextRequest) {
             special: students.filter(s => s.is_special_class === 1).length,
         }));
 
+        // 각 반별 학생 명단 (이름만)
+        const studentLists = sections.map((students, index) => ({
+            section: index + 1,
+            students: students.map(s => ({
+                name: s.name,
+                gender: s.gender,
+                isProblem: s.is_problem_student === 1,
+                isSpecial: s.is_special_class === 1,
+                group: s.group_name,
+                previousSection: (s as any).section_number
+            }))
+        }));
+
         return NextResponse.json({
             success: true,
             newClassId,
             stats,
+            studentLists,
             message: `${newSectionCount}개 반으로 편성 완료`
         });
 
