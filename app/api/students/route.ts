@@ -30,12 +30,29 @@ export async function POST(request: NextRequest) {
             }, { status: 404 });
         }
 
+        // 기존 학생 데이터에서 previous_section 값 보존
+        const getExistingStudents = db.prepare(
+            'SELECT name, gender, previous_section FROM students WHERE class_id = ? AND section_number = ?'
+        );
+        const existingStudents = getExistingStudents.all(classIdInt, sectionInt) as Array<{
+            name: string;
+            gender: string;
+            previous_section: number | null;
+        }>;
+
+        // 이름과 성별로 매칭하여 previous_section 값 매핑
+        const previousSectionMap = new Map<string, number | null>();
+        existingStudents.forEach(existing => {
+            const key = `${existing.name}_${existing.gender}`;
+            previousSectionMap.set(key, existing.previous_section);
+        });
+
         const deleteStmt = db.prepare(
             'DELETE FROM students WHERE class_id = ? AND section_number = ?'
         );
 
         const insertStmt = db.prepare(
-            'INSERT INTO students (class_id, section_number, name, gender, is_problem_student, is_special_class, group_name, rank) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO students (class_id, section_number, name, gender, is_problem_student, is_special_class, group_name, rank, previous_section) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         const saveStudents = db.transaction((studentList: any[]) => {
@@ -44,6 +61,15 @@ export async function POST(request: NextRequest) {
 
             // 새로운 학생 데이터 삽입
             for (const student of studentList) {
+                // previous_section 값 보존: 전송된 값이 있으면 사용, 없으면 기존 값 유지
+                let previousSection = student.previous_section ?? null;
+                
+                // 기존 데이터에서 previous_section 찾기
+                if (previousSection === null) {
+                    const key = `${student.name}_${student.gender}`;
+                    previousSection = previousSectionMap.get(key) ?? null;
+                }
+
                 insertStmt.run(
                     classIdInt,
                     sectionInt,
@@ -52,7 +78,8 @@ export async function POST(request: NextRequest) {
                     student.is_problem_student ? 1 : 0,
                     student.is_special_class ? 1 : 0,
                     student.group_name || null,
-                    student.rank || null
+                    student.rank || null,
+                    previousSection
                 );
             }
         });

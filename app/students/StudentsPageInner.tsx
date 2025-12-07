@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import * as XLSX from 'xlsx';
 
 interface Student {
     id?: number;
@@ -37,8 +38,10 @@ export default function StudentsPage() {
     const [isPasting, setIsPasting] = useState(false);
     const [showDistributeModal, setShowDistributeModal] = useState(false);
     const [newSectionCount, setNewSectionCount] = useState<number>(2);
-    const [distributionPreview, setDistributionPreview] = useState<any>(null);
-    const [showStudentListModal, setShowStudentListModal] = useState(false);
+    const [showPreviewModal, setShowPreviewModal] = useState(false);
+    const [previewData, setPreviewData] = useState<any>(null);
+    const [draggedStudent, setDraggedStudent] = useState<{student: any, fromSection: number} | null>(null);
+    const [dragOverSection, setDragOverSection] = useState<number | null>(null);
 
     useEffect(() => {
         if (!classId) return;
@@ -306,7 +309,15 @@ export default function StudentsPage() {
     };
 
     const handleSave = async () => {
-        const validStudents = students.filter(s => s.name.trim());
+        const validStudents = students.filter(s => s.name.trim()).map(s => ({
+            name: s.name,
+            gender: s.gender,
+            is_problem_student: s.is_problem_student,
+            is_special_class: s.is_special_class,
+            group_name: s.group_name,
+            rank: s.rank,
+            previous_section: s.previous_section || null, // previous_section 값 보존
+        }));
 
         if (validStudents.length === 0) {
             alert('최소 한 명의 학생 정보를 입력해주세요.');
@@ -348,7 +359,7 @@ export default function StudentsPage() {
         router.push(`/students?classId=${classId}&section=${section}`);
     };
 
-    const handleDistribute = async () => {
+    const handleDistributePreview = async () => {
         if (!classId || !newSectionCount || newSectionCount < 2) {
             alert('반 수는 최소 2개 이상이어야 합니다.');
             return;
@@ -361,9 +372,6 @@ export default function StudentsPage() {
             return;
         }
 
-        const confirmed = confirm(`현재 학급의 모든 학생을 ${newSectionCount}개 반으로 편성하시겠습니까?`);
-        if (!confirmed) return;
-
         setLoading(true);
         setShowDistributeModal(false);
 
@@ -374,7 +382,129 @@ export default function StudentsPage() {
                 body: JSON.stringify({
                     classId,
                     newSectionCount,
-                    schoolId: parseInt(schoolId)
+                    schoolId: parseInt(schoolId),
+                    preview: true
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to preview distribution');
+            }
+
+            const result = await response.json();
+            setPreviewData(result);
+            setShowPreviewModal(true);
+        } catch (error) {
+            console.error('Error:', error);
+            alert(`미리보기 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 드래그 앤 드롭으로 학생 이동
+    const moveStudentBetweenSections = (fromSection: number, toSection: number, student: any) => {
+        if (fromSection === toSection || !previewData) return;
+
+        const updatedStats = [...previewData.stats];
+        
+        // 원본 반에서 학생 제거
+        const fromStat = updatedStats.find((s: any) => s.section === fromSection);
+        const toStat = updatedStats.find((s: any) => s.section === toSection);
+        
+        if (!fromStat || !toStat) return;
+
+        // 학생 찾기 (이름, 성별, 이전 반 번호로 정확히 매칭)
+        const studentIndex = fromStat.students.findIndex((s: any) => {
+            const nameMatch = s.name === student.name;
+            const genderMatch = s.gender === student.gender;
+            const prevSectionMatch = (s.previous_section || null) === (student.previous_section || null);
+            const rankMatch = (s.rank || null) === (student.rank || null);
+            return nameMatch && genderMatch && prevSectionMatch && rankMatch;
+        });
+
+        if (studentIndex === -1) return;
+
+        // 학생 제거 및 추가
+        const [movedStudent] = fromStat.students.splice(studentIndex, 1);
+        toStat.students.push(movedStudent);
+
+        // 통계 업데이트
+        fromStat.total = fromStat.students.length;
+        fromStat.male = fromStat.students.filter((s: any) => s.gender === 'M').length;
+        fromStat.female = fromStat.students.filter((s: any) => s.gender === 'F').length;
+        fromStat.problem = fromStat.students.filter((s: any) => s.is_problem_student === 1).length;
+        fromStat.special = fromStat.students.filter((s: any) => s.is_special_class === 1).length;
+
+        toStat.total = toStat.students.length;
+        toStat.male = toStat.students.filter((s: any) => s.gender === 'M').length;
+        toStat.female = toStat.students.filter((s: any) => s.gender === 'F').length;
+        toStat.problem = toStat.students.filter((s: any) => s.is_problem_student === 1).length;
+        toStat.special = toStat.students.filter((s: any) => s.is_special_class === 1).length;
+
+        setPreviewData({ ...previewData, stats: updatedStats });
+    };
+
+    // 드래그 시작
+    const handleDragStart = (e: React.DragEvent, student: any, section: number) => {
+        setDraggedStudent({ student, fromSection: section });
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', ''); // 일부 브라우저에서 필요
+    };
+
+    // 드래그 오버
+    const handleDragOver = (e: React.DragEvent, section: number) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverSection(section);
+    };
+
+    // 드래그 리브
+    const handleDragLeave = () => {
+        setDragOverSection(null);
+    };
+
+    // 드롭
+    const handleDrop = (e: React.DragEvent, toSection: number) => {
+        e.preventDefault();
+        setDragOverSection(null);
+        
+        if (draggedStudent) {
+            moveStudentBetweenSections(draggedStudent.fromSection, toSection, draggedStudent.student);
+            setDraggedStudent(null);
+        }
+    };
+
+    // 드래그 종료 (드롭 영역 밖으로 나갔을 때)
+    const handleDragEnd = () => {
+        setDraggedStudent(null);
+        setDragOverSection(null);
+    };
+
+    const handleDistributeConfirm = async () => {
+        if (!classId || !newSectionCount || !previewData) return;
+
+        const schoolId = localStorage.getItem('schoolId');
+        if (!schoolId) return;
+
+        setLoading(true);
+        setShowPreviewModal(false);
+
+        try {
+            // 변경된 학생 배치 데이터를 서버로 전송
+            const response = await fetch('/api/classes/distribute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    classId,
+                    newSectionCount,
+                    schoolId: parseInt(schoolId),
+                    preview: false,
+                    customDistribution: previewData.stats.map((stat: any) => ({
+                        section: stat.section,
+                        students: stat.students
+                    }))
                 }),
             });
 
@@ -384,55 +514,13 @@ export default function StudentsPage() {
             }
 
             const result = await response.json();
+            alert(`반편성이 완료되었습니다!`);
 
-            // Store the distribution result for preview
-            setDistributionPreview(result);
-
-            // Show success message
-            alert(`반편성 분석이 완료되었습니다!\n\n${result.stats.map((s: any) =>
-                `${s.section}반: 총 ${s.total}명 (남 ${s.male}, 여 ${s.female}, 문제아 ${s.problem}, 특수반 ${s.special})`
-            ).join('\n')}\n\n아래에서 반편성 규칙을 확인하고 "최종적으로 반편성하기" 버튼을 눌러주세요.`);
+            // 새로운 클래스의 1반으로 이동
+            router.push(`/students?classId=${result.newClassId}&section=1`);
         } catch (error) {
             console.error('Error:', error);
             alert(`반편성 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleFinalizeDistribution = async () => {
-        if (!distributionPreview) return;
-
-        const confirmed = confirm('최종적으로 반편성을 확정하시겠습니까?\n새로운반으로 이동합니다.');
-        if (!confirmed) return;
-
-        setLoading(true);
-
-        try {
-            const schoolId = localStorage.getItem('schoolId');
-
-            // Update parent class to link to child class
-            const updateResponse = await fetch('/api/classes/link', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    parentClassId: classId,
-                    childClassId: distributionPreview.newClassId,
-                    schoolId: parseInt(schoolId!)
-                }),
-            });
-
-            if (!updateResponse.ok) {
-                throw new Error('Failed to finalize distribution');
-            }
-
-            alert('반편성이 최종 확정되었습니다!');
-
-            // Navigate to the new class
-            router.push(`/students?classId=${distributionPreview.newClassId}&section=1`);
-        } catch (error) {
-            console.error('Error:', error);
-            alert(`반편성 확정 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
         } finally {
             setLoading(false);
         }
@@ -478,6 +566,89 @@ export default function StudentsPage() {
         }
     };
 
+    const handleDownloadExcel = async () => {
+        if (!classData) {
+            alert('다운로드할 클래스 정보가 없습니다.');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            // 다운로드할 클래스 결정 (새로운반이 있으면 새로운반, 없으면 현재 클래스)
+            const targetClass = childClassData || classData;
+            const isDistributed = !!childClassData;
+
+            // 모든 반의 학생 데이터 가져오기
+            const allSectionsData: any[] = [];
+
+            for (let section = 1; section <= targetClass.section_count; section++) {
+                const response = await fetch(`/api/students?classId=${targetClass.id}&section=${section}`);
+                if (response.ok) {
+                    const students = await response.json();
+                    students.forEach((student: any) => {
+                        const rowData: any = {
+                            반: section,
+                            이름: student.name,
+                            성별: student.gender === 'M' ? '남' : '여',
+                            문제아: student.is_problem_student ? 'Y' : 'N',
+                            특수반: student.is_special_class ? 'Y' : 'N',
+                            그룹: student.group_name || '',
+                            등수: student.rank || ''
+                        };
+
+                        // 새로운반인 경우에만 이전반 정보 추가
+                        if (isDistributed && student.previous_section) {
+                            rowData.이전반 = `${student.previous_section}반`;
+                        }
+
+                        allSectionsData.push(rowData);
+                    });
+                }
+            }
+
+            if (allSectionsData.length === 0) {
+                alert('다운로드할 학생 데이터가 없습니다.');
+                setLoading(false);
+                return;
+            }
+
+            // 엑셀 워크북 생성
+            const wb = XLSX.utils.book_new();
+
+            // 반별로 시트 생성
+            for (let section = 1; section <= targetClass.section_count; section++) {
+                const sectionData = allSectionsData.filter(row => row.반 === section);
+                if (sectionData.length > 0) {
+                    // 반 컬럼 제거 (시트 이름으로 구분되므로)
+                    const sheetData = sectionData.map(({ 반, ...rest }) => rest);
+                    const ws = XLSX.utils.json_to_sheet(sheetData);
+                    XLSX.utils.book_append_sheet(wb, ws, `${section}반`);
+                }
+            }
+
+            // 전체 데이터 시트도 추가
+            const allDataSheet = allSectionsData.map(({ 반, ...rest }) => ({
+                반: `${반}반`,
+                ...rest
+            }));
+            const wsAll = XLSX.utils.json_to_sheet(allDataSheet);
+            XLSX.utils.book_append_sheet(wb, wsAll, '전체');
+
+            // 파일 다운로드
+            const className = isDistributed ? '새로운반' : '기존반';
+            const fileName = `${classData.grade}학년_${className}_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+
+            alert('엑셀 파일이 다운로드되었습니다!');
+        } catch (error) {
+            console.error('Error:', error);
+            alert(`엑셀 다운로드 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (!classId) {
         return (
             <div className="container">
@@ -518,97 +689,6 @@ export default function StudentsPage() {
                         </>
                     )}
 
-                    {/* 중간 확인 섹션 - 반편성 규칙 설명 */}
-                    {distributionPreview && !childClassData && (
-                        <div style={{
-                            margin: '1.5rem 1rem',
-                            padding: '1.5rem',
-                            background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
-                            border: '2px solid #667eea',
-                            borderRadius: '12px'
-                        }}>
-                            <div style={{
-                                fontSize: '0.9rem',
-                                fontWeight: 'bold',
-                                color: '#667eea',
-                                marginBottom: '1rem',
-                                textAlign: 'center'
-                            }}>
-                                ✨ 반편성 규칙 적용 완료
-                            </div>
-                            <div style={{
-                                fontSize: '0.85rem',
-                                color: '#555',
-                                lineHeight: '1.6',
-                                marginBottom: '1rem'
-                            }}>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                    ✓ <strong>문제아 학생</strong>을 최대한 모이지 않게 분산 배치
-                                </div>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                    ✓ <strong>특수반 학생</strong>은 인원수가 적은 반에 우선 배치
-                                </div>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                    ✓ <strong>같은 그룹</strong> 학생들을 서로 다른 반으로 분리
-                                </div>
-                                <div>
-                                    ✓ <strong>성별 및 등수</strong>를 고려하여 균등 분배
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setShowStudentListModal(true)}
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem',
-                                    background: '#fff',
-                                    color: '#667eea',
-                                    border: '2px solid #667eea',
-                                    borderRadius: '8px',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 'bold',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s',
-                                    marginBottom: '0.75rem'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#667eea';
-                                    e.currentTarget.style.color = 'white';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = '#fff';
-                                    e.currentTarget.style.color = '#667eea';
-                                }}
-                            >
-                                📋 학생 배치 상세보기
-                            </button>
-                            <button
-                                onClick={handleFinalizeDistribution}
-                                disabled={loading}
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem',
-                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    fontSize: '0.9rem',
-                                    fontWeight: 'bold',
-                                    cursor: loading ? 'not-allowed' : 'pointer',
-                                    transition: 'all 0.2s',
-                                    opacity: loading ? 0.6 : 1
-                                }}
-                                onMouseEnter={(e) => {
-                                    if (!loading) e.currentTarget.style.transform = 'translateY(-2px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }}
-                            >
-                                {loading ? '처리 중...' : '🎯 최종적으로 반편성하기'}
-                            </button>
-                        </div>
-                    )}
-
                     {/* 새로운반 (편성된 클래스) */}
                     {childClassData && (
                         <>
@@ -635,37 +715,16 @@ export default function StudentsPage() {
                     {/* 일반 클래스 (반편성 없음) */}
                     {!parentClassData && !childClassData && classData && (
                         <>
-                            {!distributionPreview && (
-                                <>
-                                    {[...Array(classData.section_count)].map((_, i) => (
-                                        <button
-                                            key={`normal-${i}`}
-                                            className={`section-btn ${currentSection === i + 1 ? 'active' : ''}`}
-                                            onClick={() => navigateToSection(i + 1)}
-                                        >
-                                            <span className="section-number">{i + 1}</span>
-                                            <span className="section-label">반</span>
-                                        </button>
-                                    ))}
-                                </>
-                            )}
-                            {distributionPreview && (
-                                <>
-                                    <div style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', color: '#999', fontWeight: 'bold' }}>
-                                        기존반
-                                    </div>
-                                    {[...Array(classData.section_count)].map((_, i) => (
-                                        <button
-                                            key={`normal-${i}`}
-                                            className={`section-btn ${currentSection === i + 1 ? 'active' : ''}`}
-                                            onClick={() => navigateToSection(i + 1)}
-                                        >
-                                            <span className="section-number">{i + 1}</span>
-                                            <span className="section-label">반</span>
-                                        </button>
-                                    ))}
-                                </>
-                            )}
+                            {[...Array(classData.section_count)].map((_, i) => (
+                                <button
+                                    key={`normal-${i}`}
+                                    className={`section-btn ${currentSection === i + 1 ? 'active' : ''}`}
+                                    onClick={() => navigateToSection(i + 1)}
+                                >
+                                    <span className="section-number">{i + 1}</span>
+                                    <span className="section-label">반</span>
+                                </button>
+                            ))}
                         </>
                     )}
                 </div>
@@ -854,6 +913,22 @@ export default function StudentsPage() {
                             >
                                 🔀 반편성
                             </button>
+                            <button
+                                className="btn"
+                                onClick={handleDownloadExcel}
+                                disabled={loading}
+                                style={{
+                                    background: '#28a745',
+                                    color: 'white',
+                                    border: 'none'
+                                }}
+                                title={childClassData
+                                    ? `새로운반 전체(${childClassData.section_count}개 반)의 학생 데이터를 엑셀로 다운로드합니다`
+                                    : `기존반 전체(${classData?.section_count}개 반)의 학생 데이터를 엑셀로 다운로드합니다`
+                                }
+                            >
+                                📊 엑셀 다운로드
+                            </button>
                             {childClassData && (
                                 <button
                                     className="btn"
@@ -885,6 +960,236 @@ export default function StudentsPage() {
                                 )}
                             </button>
                         </div>
+
+                        {/* 미리보기 모달 */}
+                        {showPreviewModal && previewData && (
+                            <div style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                background: 'var(--bg-main)',
+                                zIndex: 2000,
+                                overflow: 'auto',
+                                padding: '2rem 3rem'
+                            }}>
+                                    <h2 style={{
+                                        marginTop: 0,
+                                        color: 'var(--primary-light)',
+                                        marginBottom: '1rem'
+                                    }}>🔀 반편성 미리보기</h2>
+
+                                    <div style={{
+                                        color: 'var(--text-secondary)',
+                                        marginBottom: '1.5rem',
+                                        background: 'var(--bg-tertiary)',
+                                        padding: '1rem',
+                                        borderRadius: '8px'
+                                    }}>
+                                        <p style={{ margin: '0 0 0.75rem 0' }}>
+                                            아래 배치 결과를 확인하신 후 "반편성 확정" 버튼을 눌러주세요.
+                                        </p>
+                                        <div style={{ fontSize: '0.9rem', lineHeight: '1.6' }}>
+                                            <strong>적용된 배치 로직:</strong>
+                                            <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem' }}>
+                                                <li>✅ 학생수 균등 배치</li>
+                                                <li>✅ 남녀비율 균등 배치</li>
+                                                <li>✅ 그룹지정 학생 분리 (같은 그룹은 다른 반)</li>
+                                                <li>✅ 성적 벨런스 고려 (등수 분산 최소화)</li>
+                                                <li>✅ 특수아이는 학생이 적은 반에 배치</li>
+                                                <li>✅ 성을 제외한 이름이 같으면 다른 반에 배치</li>
+                                            </ul>
+                                        </div>
+                                        <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.9rem' }}>
+                                            💡 <strong>학생을 드래그해서 다른 반으로 이동</strong>할 수 있습니다.
+                                        </p>
+                                    </div>
+
+                                    {/* 반별 통계 요약 */}
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                        gap: '0.8rem',
+                                        marginBottom: '1.5rem'
+                                    }}>
+                                        {previewData.stats.map((stat: any) => (
+                                            <div key={stat.section} style={{
+                                                background: 'var(--bg-tertiary)',
+                                                padding: '0.75rem',
+                                                borderRadius: '8px',
+                                                border: '2px solid var(--border)'
+                                            }}>
+                                                <h3 style={{
+                                                    color: 'var(--primary-light)',
+                                                    marginBottom: '0.4rem',
+                                                    fontSize: '1.1rem'
+                                                }}>{stat.section}반</h3>
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                                    <div><strong>총 {stat.total}명</strong></div>
+                                                    <div>남 {stat.male}명 / 여 {stat.female}명</div>
+                                                    {stat.avgRank !== null && (
+                                                        <div style={{ marginTop: '0.25rem', color: '#667eea' }}>
+                                                            📊 평균 등수: {stat.avgRank}등
+                                                            {stat.stdDev !== null && stat.stdDev > 0 && (
+                                                                <span style={{ fontSize: '0.85rem', marginLeft: '0.5rem', color: '#999' }}>
+                                                                    (표준편차: {stat.stdDev})
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {stat.problem > 0 && <div style={{ color: 'var(--warning)', marginTop: '0.25rem' }}>⚠️ 문제아 {stat.problem}명</div>}
+                                                    {stat.special > 0 && <div style={{ color: 'var(--success)', marginTop: '0.25rem' }}>✨ 특수반 {stat.special}명</div>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* 반별 학생 목록 */}
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                                        gap: '1.2rem',
+                                        marginBottom: '2rem'
+                                    }}>
+                                        {previewData.stats.map((stat: any) => (
+                                            <div 
+                                                key={stat.section} 
+                                                style={{
+                                                    background: 'var(--bg-main)',
+                                                    padding: '1rem',
+                                                    borderRadius: '8px',
+                                                    border: dragOverSection === stat.section 
+                                                        ? '2px dashed #667eea' 
+                                                        : '1px solid var(--border)',
+                                                    transition: 'all 0.2s',
+                                                    opacity: dragOverSection && dragOverSection !== stat.section ? 0.6 : 1
+                                                }}
+                                                onDragOver={(e) => handleDragOver(e, stat.section)}
+                                                onDragLeave={handleDragLeave}
+                                                onDrop={(e) => handleDrop(e, stat.section)}
+                                            >
+                                                <h4 style={{
+                                                    color: 'var(--primary-light)',
+                                                    marginBottom: '0.75rem',
+                                                    borderBottom: '2px solid var(--border)',
+                                                    paddingBottom: '0.5rem'
+                                                }}>{stat.section}반 명단 ({stat.total}명)</h4>
+                                                <div style={{
+                                                    maxHeight: '600px',
+                                                    overflow: 'auto',
+                                                    fontSize: '0.85rem'
+                                                }}>
+                                                    {(stat.students || []).map((student: any, idx: number) => (
+                                                        <div 
+                                                            key={idx} 
+                                                            draggable
+                                                            onDragStart={(e) => handleDragStart(e, student, stat.section)}
+                                                            onDragEnd={handleDragEnd}
+                                                            style={{
+                                                                padding: '0.5rem',
+                                                                marginBottom: '0.25rem',
+                                                                background: draggedStudent?.student === student && draggedStudent?.fromSection === stat.section
+                                                                    ? 'var(--bg-tertiary)' 
+                                                                    : 'var(--bg-secondary)',
+                                                                borderRadius: '4px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.5rem',
+                                                                flexWrap: 'wrap',
+                                                                cursor: 'grab',
+                                                                transition: 'all 0.2s',
+                                                                opacity: draggedStudent?.student === student && draggedStudent?.fromSection === stat.section ? 0.5 : 1
+                                                            }}
+                                                            onMouseDown={(e) => {
+                                                                (e.currentTarget as HTMLElement).style.cursor = 'grabbing';
+                                                            }}
+                                                            onMouseUp={(e) => {
+                                                                (e.currentTarget as HTMLElement).style.cursor = 'grab';
+                                                            }}
+                                                        >
+                                                            <span style={{ fontWeight: 'bold', minWidth: '70px' }}>
+                                                                {student.name}
+                                                            </span>
+                                                            <span style={{
+                                                                background: student.gender === 'M' ? '#4299e1' : '#ed64a6',
+                                                                color: 'white',
+                                                                padding: '0.15rem 0.4rem',
+                                                                borderRadius: '4px',
+                                                                fontSize: '0.75rem'
+                                                            }}>
+                                                                {student.gender === 'M' ? '남' : '여'}
+                                                            </span>
+                                                            {student.previous_section && (
+                                                                <span style={{
+                                                                    background: 'var(--bg-tertiary)',
+                                                                    padding: '0.15rem 0.4rem',
+                                                                    borderRadius: '4px',
+                                                                    fontSize: '0.75rem',
+                                                                    color: 'var(--text-muted)'
+                                                                }}>
+                                                                    {student.previous_section}반→
+                                                                </span>
+                                                            )}
+                                                            {student.group_name && (
+                                                                <span style={{
+                                                                    background: '#805ad5',
+                                                                    color: 'white',
+                                                                    padding: '0.15rem 0.4rem',
+                                                                    borderRadius: '4px',
+                                                                    fontSize: '0.75rem'
+                                                                }}>
+                                                                    {student.group_name}
+                                                                </span>
+                                                            )}
+                                                            {student.is_problem_student === 1 && (
+                                                                <span style={{ fontSize: '0.75rem' }}>⚠️</span>
+                                                            )}
+                                                            {student.is_special_class === 1 && (
+                                                                <span style={{ fontSize: '0.75rem' }}>✨</span>
+                                                            )}
+                                                            {student.rank && (
+                                                                <span style={{
+                                                                    marginLeft: 'auto',
+                                                                    color: 'var(--text-muted)',
+                                                                    fontSize: '0.75rem'
+                                                                }}>
+                                                                    #{student.rank}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                                        <button
+                                            className="btn btn-secondary"
+                                            onClick={() => {
+                                                setShowPreviewModal(false);
+                                                setPreviewData(null);
+                                                setShowDistributeModal(true);
+                                            }}
+                                        >
+                                            취소
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            onClick={handleDistributeConfirm}
+                                            disabled={loading}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                color: 'white',
+                                                border: 'none'
+                                            }}
+                                        >
+                                            {loading ? '처리 중...' : '✅ 반편성 확정'}
+                                        </button>
+                                    </div>
+                            </div>
+                        )}
 
                         {/* 반편성 모달 */}
                         {showDistributeModal && (
@@ -938,174 +1243,16 @@ export default function StudentsPage() {
                                         </button>
                                         <button
                                             className="btn"
-                                            onClick={handleDistribute}
+                                            onClick={handleDistributePreview}
                                             style={{
                                                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                                                 color: 'white',
                                                 border: 'none'
                                             }}
                                         >
-                                            반편성 시작
+                                            미리보기
                                         </button>
                                     </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 학생 배치 상세보기 모달 */}
-                        {showStudentListModal && distributionPreview && (
-                            <div style={{
-                                position: 'fixed',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                background: 'rgba(0, 0, 0, 0.5)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                zIndex: 1000,
-                                padding: '1rem'
-                            }} onClick={() => setShowStudentListModal(false)}>
-                                <div style={{
-                                    background: 'white',
-                                    padding: '2rem',
-                                    borderRadius: '12px',
-                                    maxWidth: '900px',
-                                    width: '100%',
-                                    maxHeight: '80vh',
-                                    overflow: 'auto'
-                                }} onClick={(e) => e.stopPropagation()}>
-                                    <h2 style={{ marginTop: 0, color: '#667eea', marginBottom: '1.5rem' }}>
-                                        📋 학생 배치 상세보기
-                                    </h2>
-
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-                                        gap: '1rem',
-                                        marginBottom: '1.5rem'
-                                    }}>
-                                        {distributionPreview.studentLists?.map((section: any) => (
-                                            <div key={section.section} style={{
-                                                border: '2px solid #e0e0e0',
-                                                borderRadius: '8px',
-                                                padding: '1rem',
-                                                background: '#f9f9f9'
-                                            }}>
-                                                <h3 style={{
-                                                    margin: '0 0 1rem 0',
-                                                    color: '#667eea',
-                                                    fontSize: '1.1rem',
-                                                    borderBottom: '2px solid #667eea',
-                                                    paddingBottom: '0.5rem'
-                                                }}>
-                                                    {section.section}반 ({section.students.length}명)
-                                                </h3>
-                                                <div style={{
-                                                    maxHeight: '300px',
-                                                    overflow: 'auto'
-                                                }}>
-                                                    {section.students.map((student: any, idx: number) => (
-                                                        <div key={idx} style={{
-                                                            padding: '0.5rem',
-                                                            borderBottom: '1px solid #e0e0e0',
-                                                            fontSize: '0.85rem',
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center'
-                                                        }}>
-                                                            <div style={{ flex: 1 }}>
-                                                                <span style={{ fontWeight: 'bold' }}>{student.name}</span>
-                                                                <span style={{ color: '#999', marginLeft: '0.5rem' }}>
-                                                                    ({student.gender === 'M' ? '남' : '여'})
-                                                                </span>
-                                                                {student.previousSection && (
-                                                                    <span style={{
-                                                                        color: '#999',
-                                                                        fontSize: '0.75rem',
-                                                                        marginLeft: '0.5rem'
-                                                                    }}>
-                                                                        ← {student.previousSection}반
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
-                                                                {student.isProblem && (
-                                                                    <span style={{
-                                                                        background: '#ff6b6b',
-                                                                        color: 'white',
-                                                                        padding: '0.15rem 0.4rem',
-                                                                        borderRadius: '4px',
-                                                                        fontSize: '0.7rem'
-                                                                    }}>문제</span>
-                                                                )}
-                                                                {student.isSpecial && (
-                                                                    <span style={{
-                                                                        background: '#4ecdc4',
-                                                                        color: 'white',
-                                                                        padding: '0.15rem 0.4rem',
-                                                                        borderRadius: '4px',
-                                                                        fontSize: '0.7rem'
-                                                                    }}>특수</span>
-                                                                )}
-                                                                {student.group && (
-                                                                    <span style={{
-                                                                        background: '#667eea',
-                                                                        color: 'white',
-                                                                        padding: '0.15rem 0.4rem',
-                                                                        borderRadius: '4px',
-                                                                        fontSize: '0.7rem'
-                                                                    }}>{student.group}</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <div style={{
-                                        background: '#f0f0f0',
-                                        padding: '1rem',
-                                        borderRadius: '8px',
-                                        marginBottom: '1rem'
-                                    }}>
-                                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#555' }}>
-                                            반별 통계
-                                        </h4>
-                                        <div style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                                            gap: '0.5rem',
-                                            fontSize: '0.85rem'
-                                        }}>
-                                            {distributionPreview.stats?.map((stat: any) => (
-                                                <div key={stat.section} style={{ color: '#666' }}>
-                                                    <strong>{stat.section}반:</strong> 총 {stat.total}명
-                                                    (남 {stat.male}, 여 {stat.female}, 문제 {stat.problem}, 특수 {stat.special})
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => setShowStudentListModal(false)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            background: '#667eea',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '8px',
-                                            fontSize: '0.9rem',
-                                            fontWeight: 'bold',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        닫기
-                                    </button>
                                 </div>
                             </div>
                         )}

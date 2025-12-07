@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'schoolId parameter is required' }, { status: 400 });
         }
 
-        const stmt = db.prepare('SELECT * FROM classes WHERE school_id = ? ORDER BY created_at DESC');
+        // parent_class_id가 없는 클래스만 가져오기 (반편성된 경우 새로운반은 제외하고 기존반만 표시)
+        const stmt = db.prepare('SELECT * FROM classes WHERE school_id = ? AND parent_class_id IS NULL ORDER BY created_at DESC');
         const classes = stmt.all(schoolId) as any[];
 
         // 각 클래스에 대해 child class가 있는지 확인
