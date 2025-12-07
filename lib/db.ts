@@ -1,7 +1,16 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 
-const dbPath = path.join(process.cwd(), 'students.db');
+// Use appropriate directory based on environment
+// - Fly.io: /data (persistent volume)
+// - Replit: current working directory (persistent)
+// - Local: current working directory
+const dataDir = process.env.NODE_ENV === 'production' && fs.existsSync('/data')
+  ? '/data'
+  : process.cwd();
+
+const dbPath = path.join(dataDir, 'students.db');
 
 // Prevent multiple connections in development
 const globalForDb = global as unknown as { db: Database.Database };
