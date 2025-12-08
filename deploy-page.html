@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학생 관리 시스템 - 자동 배포</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 30px;
+            border-radius: 5px;
+        }
+
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            color: #555;
+        }
+
+        .info-box li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .deploy-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 15px;
+        }
+
+        .deploy-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .deploy-btn:active {
+            transform: translateY(0);
+        }
+
+        .quick-deploy {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e1e4e8;
+        }
+
+        .quick-deploy h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .vercel-btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: black;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .vercel-btn:hover {
+            background: #333;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            color: #856404;
+            font-size: 14px;
+        }
+
+        .step {
+            display: flex;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .step-desc {
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 학생 관리 시스템</h1>
+        <p class="subtitle">클릭 한 번으로 나만의 앱을 배포하세요</p>
+
+        <div class="info-box">
+            <h3>📦 포함된 기능</h3>
+            <ul>
+                <li>학생 정보 관리 시스템</li>
+                <li>PostgreSQL 데이터베이스 (Neon 자동 생성)</li>
+                <li>Next.js 14 기반</li>
+                <li>완전히 독립적인 배포</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>🚀 자동 배포 프로세스</h3>
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <div class="step-title">GitHub 저장소 Fork</div>
+                    <div class="step-desc">당신의 GitHub 계정으로 자동 복사</div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <div class="step-title">Vercel 배포</div>
+                    <div class="step-desc">Vercel에서 자동으로 앱 빌드 및 배포</div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <div class="step-title">NeonDB 연결</div>
+                    <div class="step-desc">PostgreSQL 데이터베이스 자동 생성 및 연결</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="github-url">GitHub 저장소 URL (선택사항)</label>
+            <input
+                type="text"
+                id="github-url"
+                placeholder="https://github.com/choimin1243/first123"
+                value="https://github.com/choimin1243/first123"
+            >
+        </div>
+
+        <button class="deploy-btn" onclick="deployToVercel()">
+            🚀 Vercel에 배포하기
+        </button>
+
+        <div class="warning">
+            <strong>⚠️ 배포 전 준비사항:</strong><br>
+            1. GitHub 계정으로 로그인되어 있어야 합니다<br>
+            2. Vercel 계정이 필요합니다 (GitHub로 로그인 가능)<br>
+            3. 배포 시 Neon Integration을 추가하라는 메시지가 나오면 "Add"를 클릭하세요
+        </div>
+
+        <div class="quick-deploy">
+            <h3>빠른 배포 (권장)</h3>
+            <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fchoimin1243%2Ffirst123&repository-name=student-management-system&project-name=student-management-system&demo-title=Student%20Management%20System&demo-description=A%20student%20management%20system%20with%20PostgreSQL&demo-url=https%3A%2F%2Fgithub.com%2Fchoimin1243%2Ffirst123&demo-image=https%3A%2F%2Fraw.githubusercontent.com%2Fchoimin1243%2Ffirst123%2Fmain%2Fpublic%2Fog-image.png&integration-ids=oac_VqOgBHqhEoFTPzGkPd7L0iH6&env=DATABASE_URL,NEXT_PUBLIC_COINGECKO_API_KEY&envDescription=Environment%20variables%20required%20for%20the%20application&envLink=https%3A%2F%2Fgithub.com%2Fchoimin1243%2Ffirst123%2Fblob%2Fsong%2FREADME.md"
+               target="_blank"
+               class="vercel-btn">
+                Deploy with Vercel
+            </a>
+        </div>
+    </div>
+
+    <script>
+        function deployToVercel() {
+            const githubUrl = document.getElementById('github-url').value.trim();
+
+            // GitHub URL 검증
+            if (!githubUrl.includes('github.com')) {
+                alert('올바른 GitHub URL을 입력해주세요');
+                return;
+            }
+
+            // GitHub URL에서 필요한 정보 추출
+            const repoPath = githubUrl.replace('https://github.com/', '').replace('.git', '');
+            const repoName = repoPath.split('/').pop();
+
+            // Vercel Deploy URL 생성
+            const deployUrl = new URL('https://vercel.com/new/clone');
+            deployUrl.searchParams.set('repository-url', githubUrl);
+            deployUrl.searchParams.set('repository-name', repoName);
+            deployUrl.searchParams.set('project-name', repoName);
+
+            // Neon Integration 추가 (자동으로 NeonDB를 생성하고 DATABASE_URL을 설정)
+            deployUrl.searchParams.set('integration-ids', 'oac_VqOgBHqhEoFTPzGkPd7L0iH6');
+
+            // 환경 변수 설정
+            deployUrl.searchParams.set('env', 'DATABASE_URL,NEXT_PUBLIC_COINGECKO_API_KEY');
+            deployUrl.searchParams.set('envDescription', 'Environment variables required for the application');
+            deployUrl.searchParams.set('envLink', `${githubUrl}/blob/song/README.md`);
+
+            // 새 창에서 Vercel 배포 페이지 열기
+            window.open(deployUrl.toString(), '_blank');
+        }
+
+        // Enter 키로도 배포 가능하도록
+        document.getElementById('github-url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                deployToVercel();
+            }
+        });
+    </script>
+</body>
+</html>
