@@ -34,9 +34,17 @@ export async function POST(request: NextRequest) {
         await sql`DELETE FROM students WHERE class_id = ${classIdInt} AND section_number = ${sectionInt}`;
 
         // 새로운 학생 데이터 삽입
+        console.log('💾 저장할 학생 데이터:', students.map(s => ({
+            name: s.name,
+            group_name: s.group_name,
+            is_underachiever: s.is_underachiever,
+            is_special_class: s.is_special_class,
+            is_problem_student: s.is_problem_student
+        })));
+
         for (const student of students) {
             await sql`INSERT INTO students (class_id, section_number, name, gender, is_problem_student, is_special_class, group_name, rank, birth_date, contact, notes, is_underachiever)
-                     VALUES (${classIdInt}, ${sectionInt}, ${student.name}, ${student.gender}, ${student.is_problem_student ? 1 : 0}, ${student.is_special_class ? 1 : 0}, ${student.group_name || null}, ${student.rank || null}, ${student.birth_date || null}, ${student.contact || null}, ${student.notes || null}, ${student.is_underachiever ? 1 : 0})`;
+                     VALUES (${classIdInt}, ${sectionInt}, ${student.name}, ${student.gender}, ${student.is_problem_student || false}, ${student.is_special_class || false}, ${student.group_name || null}, ${student.rank || null}, ${student.birth_date || null}, ${student.contact || null}, ${student.notes || null}, ${student.is_underachiever || false})`;
         }
 
         return NextResponse.json({ success: true, count: students.length });
